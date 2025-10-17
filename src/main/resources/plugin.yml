@@ -1,0 +1,25 @@
+name: TrackPlayer
+version: 1.0.0
+main: com.flyaway.trackplayer.TrackPlayer
+api-version: 1.21
+description: Player statistics tracker plugin with auto-save
+author: FlyAwayMaking
+website: https://github.com/flyawaymaking
+depend: [PlaceholderAPI]
+
+commands:
+  trackstats:
+    description: View player statistics and admin commands
+    usage: /<command> [player|admin|reload|save|status]
+    permission: trackplayer.stats
+
+permissions:
+  trackplayer.stats:
+    description: Allows viewing statistics
+    default: true
+  trackplayer.admin:
+    description: Admin commands for statistics
+    default: op
+  trackplayer.reload:
+    description: Reload plugin configuration
+    default: op

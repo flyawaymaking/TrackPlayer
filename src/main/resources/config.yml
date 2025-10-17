@@ -1,0 +1,10 @@
+# Настройки автосохранения
+auto-save-interval: 5 # Интервал автосохранения в минутах
+
+# Отладка
+debug: false
+
+# Настройки статистики
+track-mob-kills: true
+track-player-kills: true
+track-deaths: true
