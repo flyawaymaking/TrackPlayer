@@ -1,5 +1,6 @@
 plugins {
     id 'java'
+    id 'maven-publish'
 }
 
 group = 'com.flyaway.trackplayer'
@@ -29,4 +30,12 @@ dependencies {
 
 tasks.jar {
     archiveBaseName.set("TrackPlayer")
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            from components.java
+        }
+    }
 }
