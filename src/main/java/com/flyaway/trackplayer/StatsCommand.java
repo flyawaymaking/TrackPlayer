@@ -16,7 +16,7 @@ public class StatsCommand implements CommandExecutor {
             if (sender instanceof Player) {
                 showStats(sender, (Player) sender);
             } else {
-                sender.sendMessage("Используйте: /trackstats <player> или /trackstats admin <subcommand>");
+                sender.sendMessage("Используйте: /trackplayer <player> или /trackplayer admin <subcommand>");
             }
             return true;
         }
@@ -87,7 +87,7 @@ public class StatsCommand implements CommandExecutor {
 
     private void handleAdminCommands(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            sender.sendMessage("§cИспользуйте: /trackstats admin <list|resetmobs|save|status>");
+            sender.sendMessage("§cИспользуйте: /trackplayer admin <list|resetmobs|save|status>");
             return;
         }
 

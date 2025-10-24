@@ -44,7 +44,7 @@ public class TrackPlayer extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(this, this);
 
         // Регистрация команд
-        Objects.requireNonNull(getCommand("trackstats")).setExecutor(new StatsCommand());
+        Objects.requireNonNull(getCommand("trackplayer")).setExecutor(new StatsCommand());
 
         // Регистрация PlaceholderAPI (если установлена)
         if (getServer().getPluginManager().getPlugin("PlaceholderAPI") != null) {
