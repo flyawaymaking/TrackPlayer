@@ -1,5 +1,5 @@
 name: TrackPlayer
-version: 1.0.1
+version: 1.0.2
 main: com.flyaway.trackplayer.TrackPlayer
 api-version: 1.21
 description: Player statistics tracker plugin with auto-save
