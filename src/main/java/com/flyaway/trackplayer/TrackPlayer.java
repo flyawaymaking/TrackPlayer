@@ -8,6 +8,8 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.entity.EntityType;
 import org.bukkit.scheduler.BukkitRunnable;
 
@@ -35,13 +37,16 @@ public class TrackPlayer extends JavaPlugin implements Listener {
         saveDefaultConfig();
 
         // Загрузка данных игроков
-        loadPlayerData();
+        setupDataFile();
 
         // Запуск периодического сохранения
         startAutoSave();
 
         // Регистрация событий
         getServer().getPluginManager().registerEvents(this, this);
+
+        // Инициализация онлайн игроков
+        initializeOnlinePlayers();
 
         // Регистрация команд
         Objects.requireNonNull(getCommand("trackplayer")).setExecutor(new StatsCommand());
@@ -64,8 +69,8 @@ public class TrackPlayer extends JavaPlugin implements Listener {
             getServer().getScheduler().cancelTask(saveTaskId);
         }
 
-        // Принудительно сохраняем данные при выключении
-        savePlayerData();
+        // Сохраняем данные всех онлайн игроков и очищаем кэш
+        saveAllOnlinePlayersData();
         getLogger().info("TrackPlayer плагин выключен!");
     }
 
@@ -73,41 +78,58 @@ public class TrackPlayer extends JavaPlugin implements Listener {
         return instance;
     }
 
-    private void loadPlayerData() {
+    private void setupDataFile() {
         dataFile = new File(getDataFolder(), "playerdata.yml");
         if (!dataFile.exists()) {
             saveResource("playerdata.yml", false);
         }
         playerData = YamlConfiguration.loadConfiguration(dataFile);
+    }
 
-        // Загрузка данных в кэш
-        if (playerData.contains("players")) {
-            for (String uuidStr : playerData.getConfigurationSection("players").getKeys(false)) {
-                try {
-                    UUID uuid = UUID.fromString(uuidStr);
-                    int deaths = playerData.getInt("players." + uuidStr + ".deaths", 0);
-                    int playerKills = playerData.getInt("players." + uuidStr + ".player_kills", 0);
-                    int mobKills = playerData.getInt("players." + uuidStr + ".mob_kills", 0);
+    private void initializeOnlinePlayers() {
+        for (Player player : getServer().getOnlinePlayers()) {
+            getOrCreatePlayerStats(player.getUniqueId());
+        }
+        getLogger().info("Инициализированы данные для " + statsCache.size() + " онлайн игроков");
+    }
 
-                    statsCache.put(uuid, new PlayerStats(deaths, playerKills, mobKills));
-                } catch (IllegalArgumentException e) {
-                    getLogger().warning("Неверный UUID в файле данных: " + uuidStr);
-                }
+    private PlayerStats loadPlayerData(UUID uuid) {
+        String path = "players." + uuid.toString();
+        if (playerData.contains(path)) {
+            int deaths = playerData.getInt(path + ".deaths", 0);
+            int playerKills = playerData.getInt(path + ".player_kills", 0);
+            int mobKills = playerData.getInt(path + ".mob_kills", 0);
+            return new PlayerStats(deaths, playerKills, mobKills);
+        }
+        return new PlayerStats();
+    }
+
+    public PlayerStats getOrCreatePlayerStats(UUID uuid) {
+        synchronized (statsCache) {
+            return statsCache.computeIfAbsent(uuid, this::loadPlayerData);
+        }
+    }
+
+    public void removePlayerStats(UUID uuid) {
+        synchronized (statsCache) {
+            PlayerStats stats = statsCache.remove(uuid);
+            if (stats != null) {
+                savePlayerDataToFile(uuid, stats);
             }
         }
-        getLogger().info("Загружены данные для " + statsCache.size() + " игроков");
     }
 
     private void startAutoSave() {
-        // Получаем интервал сохранения из конфига (по умолчанию 5 минут)
-        int saveInterval = getConfig().getInt("auto-save-interval", 5) * 60 * 20; // в тиках
+        int saveInterval = getConfig().getInt("auto-save-interval", 5) * 60 * 20;
 
         saveTaskId = new BukkitRunnable() {
             @Override
             public void run() {
                 if (needsSave) {
-                    savePlayerData();
-                    getLogger().info("Данные автоматически сохранены (" + statsCache.size() + " игроков)");
+                    saveAllOnlinePlayersData();
+                    if (getConfig().getBoolean("debug", false)) {
+                        getLogger().info("Данные автоматически сохранены (" + statsCache.size() + " игроков)");
+                    }
                 }
             }
         }.runTaskTimer(this, saveInterval, saveInterval).getTaskId();
@@ -115,41 +137,30 @@ public class TrackPlayer extends JavaPlugin implements Listener {
         getLogger().info("Автосохранение данных каждые " + getConfig().getInt("auto-save-interval", 5) + " минут");
     }
 
-    private void registerShutdownHook() {
-        // Обработчик для безопасного выключения
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            if (instance != null) {
-                instance.savePlayerData();
+    private void saveAllOnlinePlayersData() {
+        synchronized (statsCache) {
+            for (Map.Entry<UUID, PlayerStats> entry : statsCache.entrySet()) {
+                savePlayerDataToFile(entry.getKey(), entry.getValue());
             }
-        }));
+            needsSave = false;
+        }
     }
 
-    public void savePlayerData() {
-        if (playerData != null && dataFile != null) {
-            try {
-                // Создаем временную копию для сохранения, чтобы минимизировать блокировку
-                Map<UUID, PlayerStats> snapshot = new HashMap<>(statsCache);
+    private void savePlayerDataToFile(UUID uuid, PlayerStats stats) {
+        String path = "players." + uuid.toString();
+        playerData.set(path + ".deaths", stats.getDeaths());
+        playerData.set(path + ".player_kills", stats.getPlayerKills());
+        playerData.set(path + ".mob_kills", stats.getMobKills());
 
-                // Сохранение данных из снимка
-                for (Map.Entry<UUID, PlayerStats> entry : snapshot.entrySet()) {
-                    String path = "players." + entry.getKey().toString();
-                    PlayerStats stats = entry.getValue();
-                    playerData.set(path + ".deaths", stats.getDeaths());
-                    playerData.set(path + ".player_kills", stats.getPlayerKills());
-                    playerData.set(path + ".mob_kills", stats.getMobKills());
-                }
-
-                playerData.save(dataFile);
-                needsSave = false; // Сбрасываем флаг после успешного сохранения
-
-            } catch (IOException e) {
-                getLogger().log(Level.SEVERE, "Не удалось сохранить данные игроков!", e);
-            }
+        try {
+            playerData.save(dataFile);
+        } catch (IOException e) {
+            getLogger().log(Level.SEVERE, "Ошибка сохранения данных игрока " + uuid, e);
         }
     }
 
     public void forceSave() {
-        savePlayerData();
+        saveAllOnlinePlayersData();
         getLogger().info("Принудительное сохранение данных выполнено");
     }
 
@@ -158,14 +169,30 @@ public class TrackPlayer extends JavaPlugin implements Listener {
     }
 
     @EventHandler
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        Player player = event.getPlayer();
+        getOrCreatePlayerStats(player.getUniqueId());
+        if (getConfig().getBoolean("debug", false)) {
+            getLogger().info("Данные загружены для игрока: " + player.getName());
+        }
+    }
+
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        Player player = event.getPlayer();
+        removePlayerStats(player.getUniqueId());
+        if (getConfig().getBoolean("debug", false)) {
+            getLogger().info("Данные сохранены и удалены из памяти для игрока: " + player.getName());
+        }
+    }
+
+    @EventHandler
     public void onPlayerDeath(PlayerDeathEvent event) {
         Player player = event.getEntity();
         Player killer = player.getKiller();
 
-        // Увеличиваем счетчик смертей игрока
         incrementDeaths(player.getUniqueId());
 
-        // Если убийца - другой игрок, увеличиваем его счетчик убийств игроков
         if (killer != null) {
             incrementPlayerKills(killer.getUniqueId());
         }
@@ -175,23 +202,15 @@ public class TrackPlayer extends JavaPlugin implements Listener {
     public void onEntityDeath(EntityDeathEvent event) {
         Player killer = event.getEntity().getKiller();
 
-        // Если моб убит игроком и это не игрок
         if (killer != null && event.getEntityType() != EntityType.PLAYER) {
-            // Проверяем, является ли моб враждебным
             if (isHostileMob(event.getEntityType())) {
                 incrementMobKills(killer.getUniqueId());
             }
         }
     }
 
-    /**
-     * Проверяет, является ли тип сущности враждебным мобом
-     */
     private boolean isHostileMob(EntityType entityType) {
         switch (entityType) {
-            // === ОСНОВНЫЕ ВРАЖДЕБНЫЕ МОБЫ ===
-
-            // Нежить
             case ZOMBIE:
             case DROWNED:
             case HUSK:
@@ -201,14 +220,10 @@ public class TrackPlayer extends JavaPlugin implements Listener {
             case STRAY:
             case WITHER_SKELETON:
             case PHANTOM:
-
-            // Пауки и насекомые
             case SPIDER:
             case CAVE_SPIDER:
             case SILVERFISH:
             case ENDERMITE:
-
-            // Агрессивные
             case CREEPER:
             case ENDERMAN:
             case WITCH:
@@ -219,7 +234,6 @@ public class TrackPlayer extends JavaPlugin implements Listener {
             case GUARDIAN:
             case ELDER_GUARDIAN:
             case SHULKER:
-            case SHULKER_BULLET:
             case VEX:
             case VINDICATOR:
             case EVOKER:
@@ -230,103 +244,11 @@ public class TrackPlayer extends JavaPlugin implements Listener {
             case PIGLIN_BRUTE:
             case WARDEN:
             case BREEZE:
-
-            // === БОССЫ ===
             case ENDER_DRAGON:
             case WITHER:
-
-            // === НЕЙТРАЛЬНЫЕ, НО МОГУТ БЫТЬ ВРАЖДЕБНЫМИ ===
-            case PIGLIN: // Может быть враждебным без золотой брони
+            case PIGLIN:
                 return true;
-
-            // === МИРНЫЕ МОБЫ И ЖИВОТНЫЕ - НЕ СЧИТАЕМ ===
-
-            // Животные фермы
-            case COW:
-            case PIG:
-            case SHEEP:
-            case CHICKEN:
-            case RABBIT:
-            case FOX:
-            case PANDA:
-            case BEE:
-            case POLAR_BEAR:
-            case GOAT:
-            case FROG:
-            case TADPOLE:
-            case SNIFFER:
-            case CAMEL:
-
-            // Домашние животные
-            case WOLF:
-            case OCELOT:
-            case CAT:
-            case PARROT:
-            case AXOLOTL:
-            case HORSE:
-            case DONKEY:
-            case MULE:
-            case SKELETON_HORSE:
-            case ZOMBIE_HORSE:
-            case LLAMA:
-            case TRADER_LLAMA:
-
-            // Водные обитатели
-            case SQUID:
-            case GLOW_SQUID:
-            case DOLPHIN:
-            case TURTLE:
-            case COD:
-            case SALMON:
-            case TROPICAL_FISH:
-            case PUFFERFISH:
-
-            // Другие мирные
-            case BAT:
-            case STRIDER:
-            case SNOW_GOLEM:
-            case IRON_GOLEM:
-            case VILLAGER:
-            case WANDERING_TRADER:
-            case ALLAY:
-
-            // === TECHNICAL ENTITIES - НЕ СЧИТАЕМ ===
-            case ARMOR_STAND:
-            case ITEM_FRAME:
-            case GLOW_ITEM_FRAME:
-            case PAINTING:
-            case MINECART:
-            case BOAT:
-            case END_CRYSTAL:
-            case EXPERIENCE_ORB:
-            case AREA_EFFECT_CLOUD:
-            case EGG:
-            case ENDER_PEARL:
-            case EYE_OF_ENDER:
-            case FALLING_BLOCK:
-            case FIREWORK_ROCKET:
-            case ITEM:
-            case LIGHTNING_BOLT:
-            case LLAMA_SPIT:
-            case PLAYER:
-            case POTION:
-            case SMALL_FIREBALL:
-            case SNOWBALL:
-            case SPECTRAL_ARROW:
-            case TNT:
-            case TRIDENT:
-            case WITHER_SKULL:
-            case FISHING_BOBBER:
-            case MARKER:
-            case BLOCK_DISPLAY:
-            case INTERACTION:
-            case TEXT_DISPLAY:
-            case ITEM_DISPLAY:
-                return false;
-
             default:
-                // Для неизвестных или новых мобов - по умолчанию не считаем
-                // Можно добавить логирование для отладки
                 if (getConfig().getBoolean("debug", false)) {
                     getLogger().info("Неизвестный тип моба: " + entityType + " - не считается враждебным");
                 }
@@ -337,73 +259,207 @@ public class TrackPlayer extends JavaPlugin implements Listener {
     // API методы
 
     public void incrementDeaths(UUID uuid) {
-        PlayerStats stats = statsCache.getOrDefault(uuid, new PlayerStats());
-        stats.incrementDeaths();
-        statsCache.put(uuid, stats);
-        markDataDirty(); // Помечаем данные как измененные
+        synchronized (statsCache) {
+            PlayerStats stats = getOrCreatePlayerStats(uuid);
+            stats.incrementDeaths();
+            markDataDirty();
+        }
     }
 
     public void incrementPlayerKills(UUID uuid) {
-        PlayerStats stats = statsCache.getOrDefault(uuid, new PlayerStats());
-        stats.incrementPlayerKills();
-        statsCache.put(uuid, stats);
-        markDataDirty(); // Помечаем данные как измененные
+        synchronized (statsCache) {
+            PlayerStats stats = getOrCreatePlayerStats(uuid);
+            stats.incrementPlayerKills();
+            markDataDirty();
+        }
     }
 
     public void incrementMobKills(UUID uuid) {
-        PlayerStats stats = statsCache.getOrDefault(uuid, new PlayerStats());
-        stats.incrementMobKills();
-        statsCache.put(uuid, stats);
-        markDataDirty(); // Помечаем данные как измененные
+        synchronized (statsCache) {
+            PlayerStats stats = getOrCreatePlayerStats(uuid);
+            stats.incrementMobKills();
+            markDataDirty();
+        }
     }
 
     public int getDeaths(UUID uuid) {
-        PlayerStats stats = statsCache.get(uuid);
-        return stats != null ? stats.getDeaths() : 0;
+        // Сначала проверяем онлайн игроков в кэше
+        synchronized (statsCache) {
+            PlayerStats stats = statsCache.get(uuid);
+            if (stats != null) {
+                return stats.getDeaths();
+            }
+        }
+
+        // Если нет в кэше, проверяем файл (для офлайн игроков)
+        return playerData.getInt("players." + uuid.toString() + ".deaths", 0);
     }
 
     public int getPlayerKills(UUID uuid) {
-        PlayerStats stats = statsCache.get(uuid);
-        return stats != null ? stats.getPlayerKills() : 0;
+        // Сначала проверяем онлайн игроков в кэше
+        synchronized (statsCache) {
+            PlayerStats stats = statsCache.get(uuid);
+            if (stats != null) {
+                return stats.getPlayerKills();
+            }
+        }
+
+        // Если нет в кэше, проверяем файл
+        return playerData.getInt("players." + uuid.toString() + ".player_kills", 0);
     }
 
     public int getMobKills(UUID uuid) {
-        PlayerStats stats = statsCache.get(uuid);
-        return stats != null ? stats.getMobKills() : 0;
+        // Сначала проверяем онлайн игроков в кэше
+        synchronized (statsCache) {
+            PlayerStats stats = statsCache.get(uuid);
+            if (stats != null) {
+                return stats.getMobKills();
+            }
+        }
+
+        // Если нет в кэше, проверяем файл
+        return playerData.getInt("players." + uuid.toString() + ".mob_kills", 0);
     }
 
-    /**
-     * API метод: Получить список UUID игроков и количество убитых мобов
-     */
     public Map<UUID, Integer> getPlayerMobKills() {
         Map<UUID, Integer> result = new HashMap<>();
-        for (Map.Entry<UUID, PlayerStats> entry : statsCache.entrySet()) {
-            result.put(entry.getKey(), entry.getValue().getMobKills());
+
+        // Сначала добавляем онлайн игроков из кэша
+        synchronized (statsCache) {
+            for (Map.Entry<UUID, PlayerStats> entry : statsCache.entrySet()) {
+                result.put(entry.getKey(), entry.getValue().getMobKills());
+            }
+        }
+
+        // Затем добавляем офлайн игроков из файла (если их еще нет в результате)
+        if (playerData.contains("players")) {
+            for (String uuidStr : playerData.getConfigurationSection("players").getKeys(false)) {
+                try {
+                    UUID uuid = UUID.fromString(uuidStr);
+                    // Добавляем только если игрок не онлайн (нет в кэше)
+                    if (!result.containsKey(uuid)) {
+                        int mobKills = playerData.getInt("players." + uuidStr + ".mob_kills", 0);
+                        result.put(uuid, mobKills);
+                    }
+                } catch (IllegalArgumentException e) {
+                    getLogger().warning("Неверный UUID в файле данных: " + uuidStr);
+                }
+            }
         }
         return result;
     }
 
-    /**
-     * API метод: Сбросить статистику по убитым мобам для всех игроков
-     */
-    public void resetAllMobKills() {
-        for (PlayerStats stats : statsCache.values()) {
-            stats.setMobKills(0);
+    public Map<UUID, Integer> getAllDeaths() {
+        Map<UUID, Integer> result = new HashMap<>();
+
+        // Сначала онлайн игроки из кэша
+        synchronized (statsCache) {
+            for (Map.Entry<UUID, PlayerStats> entry : statsCache.entrySet()) {
+                result.put(entry.getKey(), entry.getValue().getDeaths());
+            }
         }
-        markDataDirty(); // Помечаем данные как измененные
-        savePlayerData(); // Немедленно сохраняем после сброса
+
+        // Затем офлайн игроки из файла
+        if (playerData.contains("players")) {
+            for (String uuidStr : playerData.getConfigurationSection("players").getKeys(false)) {
+                try {
+                    UUID uuid = UUID.fromString(uuidStr);
+                    if (!result.containsKey(uuid)) {
+                        int deaths = playerData.getInt("players." + uuidStr + ".deaths", 0);
+                        result.put(uuid, deaths);
+                    }
+                } catch (IllegalArgumentException e) {
+                    getLogger().warning("Неверный UUID в файле данных: " + uuidStr);
+                }
+            }
+        }
+        return result;
     }
 
-    /**
-     * Получить количество игроков в кэше
-     */
+    public Map<UUID, Integer> getAllPlayerKills() {
+        Map<UUID, Integer> result = new HashMap<>();
+
+        // Сначала онлайн игроки из кэша
+        synchronized (statsCache) {
+            for (Map.Entry<UUID, PlayerStats> entry : statsCache.entrySet()) {
+                result.put(entry.getKey(), entry.getValue().getPlayerKills());
+            }
+        }
+
+        // Затем офлайн игроки из файла
+        if (playerData.contains("players")) {
+            for (String uuidStr : playerData.getConfigurationSection("players").getKeys(false)) {
+                try {
+                    UUID uuid = UUID.fromString(uuidStr);
+                    if (!result.containsKey(uuid)) {
+                        int playerKills = playerData.getInt("players." + uuidStr + ".player_kills", 0);
+                        result.put(uuid, playerKills);
+                    }
+                } catch (IllegalArgumentException e) {
+                    getLogger().warning("Неверный UUID в файле данных: " + uuidStr);
+                }
+            }
+        }
+        return result;
+    }
+
+    public void resetAllMobKills() {
+        // Сбрасываем для онлайн игроков в кэше
+        synchronized (statsCache) {
+            for (PlayerStats stats : statsCache.values()) {
+                stats.setMobKills(0);
+            }
+        }
+
+        // Сбрасываем для всех игроков в файле
+        if (playerData.contains("players")) {
+            for (String uuidStr : playerData.getConfigurationSection("players").getKeys(false)) {
+                playerData.set("players." + uuidStr + ".mob_kills", 0);
+            }
+        }
+
+        markDataDirty();
+        forceSave();
+    }
+
+    public void resetAllDeaths() {
+        synchronized (statsCache) {
+            for (PlayerStats stats : statsCache.values()) {
+                stats.setDeaths(0);
+            }
+        }
+
+        if (playerData.contains("players")) {
+            for (String uuidStr : playerData.getConfigurationSection("players").getKeys(false)) {
+                playerData.set("players." + uuidStr + ".deaths", 0);
+            }
+        }
+
+        markDataDirty();
+        forceSave();
+    }
+
+    public void resetAllPlayerKills() {
+        synchronized (statsCache) {
+            for (PlayerStats stats : statsCache.values()) {
+                stats.setPlayerKills(0);
+            }
+        }
+
+        if (playerData.contains("players")) {
+            for (String uuidStr : playerData.getConfigurationSection("players").getKeys(false)) {
+                playerData.set("players." + uuidStr + ".player_kills", 0);
+            }
+        }
+
+        markDataDirty();
+        forceSave();
+    }
+
     public int getCachedPlayersCount() {
         return statsCache.size();
     }
 
-    /**
-     * Принудительно сохранить данные и получить статус
-     */
     public String getSaveStatus() {
         return needsSave ? "Требуется сохранение" : "Все данные сохранены";
     }
@@ -428,7 +484,6 @@ public class TrackPlayer extends JavaPlugin implements Listener {
         public void incrementPlayerKills() { playerKills++; }
         public void incrementMobKills() { mobKills++; }
 
-        // Геттеры и сеттеры
         public int getDeaths() { return deaths; }
         public int getPlayerKills() { return playerKills; }
         public int getMobKills() { return mobKills; }

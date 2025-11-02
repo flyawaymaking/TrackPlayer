@@ -9,6 +9,13 @@
 - **Количество убийств** других игроков
 - **Количество убитых враждебных мобов**
 
+## ⚡ Оптимизация производительности
+
+### Оптимизация использования памяти
+- **Ленивая загрузка данных** - данные загружаются только для онлайн-игроков
+- **Автоматическое управление памятью** - данные удаляются из памяти при выходе игрока
+- **Синхронизированные операции** - обеспечена потокобезопасность при работе с данными
+
 ### Враждебные мобы которые отслеживаются:
 ```
 Zombie, Drowned, Husk, Skeleton, Stray, Wither Skeleton, Spider, Cave Spider,
@@ -73,16 +80,20 @@ TrackPlayer trackPlugin = (TrackPlayer) Bukkit.getPluginManager().getPlugin("Tra
 
 ### Основные методы API:
 ```java
-// Получить статистику игрока
+// Получить статистику игрока (работает для онлайн и офлайн игроков)
 int deaths = trackPlugin.getDeaths(uuid);
 int playerKills = trackPlugin.getPlayerKills(uuid);
 int mobKills = trackPlugin.getMobKills(uuid);
 
-// Получить список всех игроков и их убийств мобов
+// Получить списки всех игроков (онлайн + офлайн)
 Map<UUID, Integer> mobKills = trackPlugin.getPlayerMobKills();
+Map<UUID, Integer> allDeaths = trackPlugin.getAllDeaths();
+Map<UUID, Integer> allPlayerKills = trackPlugin.getAllPlayerKills();
 
-// Сбросить статистику мобов
+// Сбросить статистику
 trackPlugin.resetAllMobKills();
+trackPlugin.resetAllDeaths();
+trackPlugin.resetAllPlayerKills();
 ```
 
 ## ⚙️ Конфигурация
