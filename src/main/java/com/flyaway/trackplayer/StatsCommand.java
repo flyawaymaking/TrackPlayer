@@ -5,6 +5,7 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.Bukkit;
+
 import java.util.Map;
 import java.util.UUID;
 
@@ -82,7 +83,7 @@ public class StatsCommand implements CommandExecutor {
         sender.sendMessage("§7Игроков в кэше: §f" + plugin.getCachedPlayersCount());
         sender.sendMessage("§7Статус сохранения: §f" + plugin.getSaveStatus());
         sender.sendMessage("§7Автосохранение: §fкаждые " +
-            plugin.getConfig().getInt("auto-save-interval", 5) + " минут");
+                plugin.getConfig().getInt("auto-save-interval", 5) + " минут");
     }
 
     private void handleAdminCommands(CommandSender sender, String[] args) {
@@ -96,12 +97,12 @@ public class StatsCommand implements CommandExecutor {
                 Map<UUID, Integer> mobKills = TrackPlayer.getInstance().getPlayerMobKills();
                 sender.sendMessage("§6=== Список убийств мобов игроками ===");
                 mobKills.entrySet().stream()
-                    .sorted((a, b) -> b.getValue().compareTo(a.getValue()))
-                    .forEach(entry -> {
-                        String playerName = Bukkit.getOfflinePlayer(entry.getKey()).getName();
-                        sender.sendMessage("§7" + (playerName != null ? playerName : "Unknown") +
-                                          ": §f" + entry.getValue());
-                    });
+                        .sorted((a, b) -> b.getValue().compareTo(a.getValue()))
+                        .forEach(entry -> {
+                            String playerName = Bukkit.getOfflinePlayer(entry.getKey()).getName();
+                            sender.sendMessage("§7" + (playerName != null ? playerName : "Unknown") +
+                                    ": §f" + entry.getValue());
+                        });
                 break;
             case "resetmobs":
                 TrackPlayer.getInstance().resetAllMobKills();

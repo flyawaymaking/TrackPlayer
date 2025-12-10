@@ -18,22 +18,22 @@ public class StatsPlaceholder extends PlaceholderExpansion {
 
     @Override
     public @NotNull String getIdentifier() {
-        return "trackplayer"; // Обратите внимание на название!
+        return "trackplayer";
     }
 
     @Override
     public @NotNull String getAuthor() {
-        return "FlyAway";
+        return plugin.getPluginMeta().getAuthors().getFirst();
     }
 
     @Override
     public @NotNull String getVersion() {
-        return "1.0.0";
+        return plugin.getPluginMeta().getVersion();
     }
 
     @Override
     public boolean persist() {
-        return true; // Это важно для сохранения после перезагрузки
+        return true;
     }
 
     @Override
@@ -47,18 +47,12 @@ public class StatsPlaceholder extends PlaceholderExpansion {
 
         UUID uuid = player.getUniqueId();
 
-        switch (params.toLowerCase()) {
-            case "kills":
-            case "player_kills":
-                return String.valueOf(plugin.getPlayerKills(uuid));
-            case "deaths":
-                return String.valueOf(plugin.getDeaths(uuid));
-            case "mob_kills":
-            case "mobkills":
-                return String.valueOf(plugin.getMobKills(uuid));
-            default:
-                return null;
-        }
+        return switch (params.toLowerCase()) {
+            case "kills", "player_kills" -> String.valueOf(plugin.getPlayerKills(uuid));
+            case "deaths" -> String.valueOf(plugin.getDeaths(uuid));
+            case "mob_kills", "mobkills" -> String.valueOf(plugin.getMobKills(uuid));
+            default -> null;
+        };
     }
 
     @Override

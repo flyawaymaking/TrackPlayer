@@ -24,14 +24,13 @@ public class TrackPlayer extends JavaPlugin implements Listener {
     private static TrackPlayer instance;
     private File dataFile;
     private FileConfiguration playerData;
-    private Map<UUID, PlayerStats> statsCache;
+    private final Map<UUID, PlayerStats> statsCache = new ConcurrentHashMap<>();
     private int saveTaskId;
     private boolean needsSave = false;
 
     @Override
     public void onEnable() {
         instance = this;
-        statsCache = new ConcurrentHashMap<>();
 
         // Создание файла конфигурации
         saveDefaultConfig();
@@ -210,50 +209,18 @@ public class TrackPlayer extends JavaPlugin implements Listener {
     }
 
     private boolean isHostileMob(EntityType entityType) {
-        switch (entityType) {
-            case ZOMBIE:
-            case DROWNED:
-            case HUSK:
-            case ZOMBIFIED_PIGLIN:
-            case ZOGLIN:
-            case SKELETON:
-            case STRAY:
-            case WITHER_SKELETON:
-            case PHANTOM:
-            case SPIDER:
-            case CAVE_SPIDER:
-            case SILVERFISH:
-            case ENDERMITE:
-            case CREEPER:
-            case ENDERMAN:
-            case WITCH:
-            case BLAZE:
-            case GHAST:
-            case MAGMA_CUBE:
-            case SLIME:
-            case GUARDIAN:
-            case ELDER_GUARDIAN:
-            case SHULKER:
-            case VEX:
-            case VINDICATOR:
-            case EVOKER:
-            case ILLUSIONER:
-            case PILLAGER:
-            case RAVAGER:
-            case HOGLIN:
-            case PIGLIN_BRUTE:
-            case WARDEN:
-            case BREEZE:
-            case ENDER_DRAGON:
-            case WITHER:
-            case PIGLIN:
-                return true;
-            default:
+        return switch (entityType) {
+            case ZOMBIE, DROWNED, HUSK, ZOMBIFIED_PIGLIN, ZOGLIN, SKELETON, STRAY, WITHER_SKELETON, PHANTOM, SPIDER,
+                 CAVE_SPIDER, SILVERFISH, ENDERMITE, CREEPER, ENDERMAN, WITCH, BLAZE, GHAST, MAGMA_CUBE, SLIME,
+                 GUARDIAN, ELDER_GUARDIAN, SHULKER, VEX, VINDICATOR, EVOKER, ILLUSIONER, PILLAGER, RAVAGER, HOGLIN,
+                 PIGLIN_BRUTE, WARDEN, BREEZE, ENDER_DRAGON, WITHER, PIGLIN -> true;
+            default -> {
                 if (getConfig().getBoolean("debug", false)) {
                     getLogger().info("Неизвестный тип моба: " + entityType + " - не считается враждебным");
                 }
-                return false;
-        }
+                yield false;
+            }
+        };
     }
 
     // API методы
@@ -480,15 +447,40 @@ public class TrackPlayer extends JavaPlugin implements Listener {
             this.mobKills = mobKills;
         }
 
-        public void incrementDeaths() { deaths++; }
-        public void incrementPlayerKills() { playerKills++; }
-        public void incrementMobKills() { mobKills++; }
+        public void incrementDeaths() {
+            deaths++;
+        }
 
-        public int getDeaths() { return deaths; }
-        public int getPlayerKills() { return playerKills; }
-        public int getMobKills() { return mobKills; }
-        public void setDeaths(int deaths) { this.deaths = deaths; }
-        public void setPlayerKills(int playerKills) { this.playerKills = playerKills; }
-        public void setMobKills(int mobKills) { this.mobKills = mobKills; }
+        public void incrementPlayerKills() {
+            playerKills++;
+        }
+
+        public void incrementMobKills() {
+            mobKills++;
+        }
+
+        public int getDeaths() {
+            return deaths;
+        }
+
+        public int getPlayerKills() {
+            return playerKills;
+        }
+
+        public int getMobKills() {
+            return mobKills;
+        }
+
+        public void setDeaths(int deaths) {
+            this.deaths = deaths;
+        }
+
+        public void setPlayerKills(int playerKills) {
+            this.playerKills = playerKills;
+        }
+
+        public void setMobKills(int mobKills) {
+            this.mobKills = mobKills;
+        }
     }
 }
